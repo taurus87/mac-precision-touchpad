@@ -92,7 +92,7 @@ AmtPtpEvtUsbInterruptPipeReadComplete(
 
 	WDFDEVICE       device;
 	PDEVICE_CONTEXT pDeviceContext = Context;
-	UCHAR*			pBuffer = NULL;
+	UCHAR*			szBuffer = NULL;
 	NTSTATUS        status;
 
 	TraceEvents(
@@ -142,64 +142,68 @@ AmtPtpEvtUsbInterruptPipeReadComplete(
 
 	// Dispatch USB Interrupt routine by device family
 	switch (pDeviceContext->DeviceInfo->tp_type) {
-		case TYPE1:
-		{
-			TraceEvents(
-				TRACE_LEVEL_WARNING,
-				TRACE_DRIVER,
-				"%!FUNC! Mode not yet supported"
-			);
-			break;
-		}
-		// Universal routine handler
-		case TYPE2:
-		case TYPE3:
-		case TYPE4:
-		{
-			pBuffer = WdfMemoryGetBuffer(
-				Buffer,
-				NULL
-			);
-
-			status = AmtPtpServiceTouchInputInterrupt(
-				pDeviceContext,
-				pBuffer,
-				NumBytesTransferred
-			);
-
-			if (!NT_SUCCESS(status)) {
+			case TYPE1:
+			// case TYPE4:
+			{
 				TraceEvents(
 					TRACE_LEVEL_WARNING,
 					TRACE_DRIVER,
-					"%!FUNC! AmtPtpServiceTouchInputInterrupt failed with %!STATUS!",
-					status
+					"%!FUNC! Mode not yet supported"
 				);
+				break;
 			}
-			break;
-		}
-		// Magic Trackpad 2
-		case TYPE5:
-		{
-			pBuffer = WdfMemoryGetBuffer(
-				Buffer,
-				NULL
-			);
-			status = AmtPtpServiceTouchInputInterruptType5(
-				pDeviceContext,
-				pBuffer,
-				NumBytesTransferred
-			);
+			// Universal routine handler
+			case TYPE2:
+			case TYPE3:
+			case TYPE4:
+			{
 
-			if (!NT_SUCCESS(status)) {
-				TraceEvents(
-					TRACE_LEVEL_WARNING,
-					TRACE_DRIVER,
-					"%!FUNC! AmtPtpServiceTouchInputInterrupt5 failed with %!STATUS!",
-					status
+				szBuffer = WdfMemoryGetBuffer(
+					Buffer,
+					NULL
 				);
+				status = AmtPtpServiceTouchInputInterrupt(
+					pDeviceContext,
+					szBuffer,
+					NumBytesTransferred
+				);
+
+				if (!NT_SUCCESS(status)) {
+					TraceEvents(
+						TRACE_LEVEL_WARNING,
+						TRACE_DRIVER,
+						"%!FUNC! AmtPtpServiceTouchInputInterrupt failed with %!STATUS!",
+						status
+					);
+				}
+				break;
+
 			}
-			break;
-		}
+			// Magic Trackpad 2
+			case TYPE5:
+			{
+
+				szBuffer = WdfMemoryGetBuffer(
+					Buffer,
+					NULL
+				);
+				status = AmtPtpServiceTouchInputInterruptType5(
+					pDeviceContext,
+					szBuffer,
+					NumBytesTransferred
+				);
+
+				if (!NT_SUCCESS(status)) {
+					TraceEvents(
+						TRACE_LEVEL_WARNING,
+						TRACE_DRIVER,
+						"%!FUNC! AmtPtpServiceTouchInputInterrupt5 failed with %!STATUS!",
+						status
+					);
+				}
+				break;
+
+			}
 	}
 
 	TraceEvents(
@@ -218,7 +222,9 @@ AmtPtpEvtUsbInterruptReadersFailed(
 	_In_ USBD_STATUS UsbdStatus
 )
 {
-	UNREFERENCED_PARAMETER(Pipe);
+	WDFDEVICE device = WdfIoTargetGetDevice(WdfUsbTargetPipeGetIoTarget(Pipe));
+
+	UNREFERENCED_PARAMETER(device);
 	UNREFERENCED_PARAMETER(UsbdStatus);
 	UNREFERENCED_PARAMETER(Status);
 
@@ -233,9 +239,10 @@ AmtPtpServiceTouchInputInterrupt(
 	_In_ size_t NumBytesTransferred
 )
 {
+	
 	NTSTATUS Status;
 	WDFREQUEST Request;
-	WDFMEMORY  RequestMemory;
+	WDFMEMORY  reqMemory;
 	PTP_REPORT PtpReport;
 	LARGE_INTEGER CurrentPerfCounter;
 	LONGLONG PerfCounterDelta;
@@ -253,8 +260,21 @@ AmtPtpServiceTouchInputInterrupt(
 	size_t fingerprintSize = (unsigned int) DeviceContext->DeviceInfo->tp_fsize;
 	USHORT x = 0, y = 0;
 
+	QueryPerformanceCounter(
+		&CurrentPerfCounter
+	);
+
+	// Scan time is in 100us
+	PerfCounterDelta = (CurrentPerfCounter.QuadPart - DeviceContext->PerfCounter.QuadPart) / 100;
+	// Only two bytes allocated
+	if (PerfCounterDelta > 0xFF)
+	{
+		PerfCounterDelta = 0xFF;
+	}
+
 	Status = STATUS_SUCCESS;
 	PtpReport.ReportID = REPORTID_MULTITOUCH;
+	PtpReport.ScanTime = (USHORT) PerfCounterDelta;
 	PtpReport.IsButtonClicked = 0;
 
 	// Retrieve next PTP touchpad request.
@@ -272,24 +292,10 @@ AmtPtpServiceTouchInputInterrupt(
 		goto exit;
 	}
 
-	QueryPerformanceCounter(
-		&CurrentPerfCounter
-	);
-
-	// Scan time is in 100us
-	PerfCounterDelta = (CurrentPerfCounter.QuadPart - DeviceContext->PerfCounter.QuadPart) / 100;
-	// Only two bytes allocated
-	if (PerfCounterDelta > 0xFF)
-	{
-		PerfCounterDelta = 0xFF;
-	}
-
-	PtpReport.ScanTime = (USHORT) PerfCounterDelta;
-
 	// Allocate output memory.
 	Status = WdfRequestRetrieveOutputMemory(
 		Request,
-		&RequestMemory
+		&reqMemory
 	);
 
 	if (!NT_SUCCESS(Status)) {
@@ -309,14 +315,12 @@ AmtPtpServiceTouchInputInterrupt(
 		if (raw_n >= PTP_MAX_CONTACT_POINTS) raw_n = PTP_MAX_CONTACT_POINTS;
 		PtpReport.ContactCount = (UCHAR) raw_n;
 
-#ifdef INPUT_CONTENT_TRACE
 		TraceEvents(
 			TRACE_LEVEL_INFORMATION,
 			TRACE_DRIVER,
 			"%!FUNC! with %llu points.",
 			raw_n
 		);
-#endif
 
 		// Fingers
 		for (i = 0; i < raw_n; i++) {
@@ -325,10 +329,8 @@ AmtPtpServiceTouchInputInterrupt(
 			f = (const struct TRACKPAD_FINGER*) (f_base + i * fingerprintSize);
 
 			// Translate X and Y
-			x = (AmtRawToInteger(f->abs_x) - DeviceContext->DeviceInfo->x.min) > 0 ? 
-				((USHORT)(AmtRawToInteger(f->abs_x) - DeviceContext->DeviceInfo->x.min)) : 0;
-			y = (DeviceContext->DeviceInfo->y.max - AmtRawToInteger(f->abs_y)) > 0 ? 
-				((USHORT)(DeviceContext->DeviceInfo->y.max - AmtRawToInteger(f->abs_y))) : 0;
+			x = (AmtRawToInteger(f->abs_x) - DeviceContext->DeviceInfo->x.min) > 0 ? ((USHORT)(AmtRawToInteger(f->abs_x) - DeviceContext->DeviceInfo->x.min)) : 0;
+			y = (DeviceContext->DeviceInfo->y.max - AmtRawToInteger(f->abs_y)) > 0 ? ((USHORT)(DeviceContext->DeviceInfo->y.max - AmtRawToInteger(f->abs_y))) : 0;
 
 			// Defuzz functions remain the same
 			// TODO: Implement defuzz later
@@ -338,7 +340,6 @@ AmtPtpServiceTouchInputInterrupt(
 			PtpReport.Contacts[i].TipSwitch = (AmtRawToInteger(f->touch_major) << 1) >= 200;
 			PtpReport.Contacts[i].Confidence = (AmtRawToInteger(f->touch_minor) << 1) > 0;
 
-#ifdef INPUT_CONTENT_TRACE
 			TraceEvents(
 				TRACE_LEVEL_INFORMATION,
 				TRACE_INPUT,
@@ -353,7 +354,7 @@ AmtPtpServiceTouchInputInterrupt(
 				AmtRawToInteger(f->origin),
 				(UCHAR) i
 			);
-#endif
+
 		}
 	}
 
@@ -362,12 +363,17 @@ AmtPtpServiceTouchInputInterrupt(
 		// Handles trackpad button input here.
 		if (Buffer[DeviceContext->DeviceInfo->tp_button]) {
 			PtpReport.IsButtonClicked = TRUE;
+			TraceEvents(
+				TRACE_LEVEL_INFORMATION,
+				TRACE_INPUT,
+				"%!FUNC!: Trackpad button clicked"
+			);
 		}
 	}
 
 	// Compose final report and write it back
 	Status = WdfMemoryCopyFromBuffer(
-		RequestMemory,
+		reqMemory,
 		0,
 		(PVOID) &PtpReport,
 		sizeof(PTP_REPORT)
@@ -414,12 +420,10 @@ AmtPtpServiceTouchInputInterruptType5(
 )
 {
 
-	NTSTATUS   Status;
-	WDFREQUEST Request;
-	WDFMEMORY  RequestMemory;
-	PTP_REPORT PtpReport;
-	LARGE_INTEGER CurrentPerfCounter;
-	LONGLONG PerfCounterDelta;
+	NTSTATUS   status;
+	WDFREQUEST request;
+	WDFMEMORY  reqMemory;
+	PTP_REPORT report;
 
 	const struct TRACKPAD_FINGER *f;
 	const struct TRACKPAD_FINGER_TYPE5 *f_type5;
@@ -430,21 +434,19 @@ AmtPtpServiceTouchInputInterruptType5(
 		"%!FUNC! Entry"
 	);
 
-	Status = STATUS_SUCCESS;
-	PtpReport.ReportID = REPORTID_MULTITOUCH;
-	PtpReport.IsButtonClicked = 0;
-
+	status = STATUS_SUCCESS;
 	INT x, y = 0;
+
 	size_t raw_n, i = 0;
 	size_t headerSize = (unsigned int) DeviceContext->DeviceInfo->tp_header;
 	size_t fingerprintSize = (unsigned int) DeviceContext->DeviceInfo->tp_fsize;
 
-	Status = WdfIoQueueRetrieveNextRequest(
+	status = WdfIoQueueRetrieveNextRequest(
 		DeviceContext->InputQueue,
-		&Request
+		&request
 	);
 
-	if (!NT_SUCCESS(Status)) {
+	if (!NT_SUCCESS(status)) {
 		TraceEvents(
 			TRACE_LEVEL_INFORMATION, 
 			TRACE_DRIVER, 
@@ -453,48 +455,35 @@ AmtPtpServiceTouchInputInterruptType5(
 		goto exit;
 	}
 
-	Status = WdfRequestRetrieveOutputMemory(
-		Request, 
-		&RequestMemory
+	status = WdfRequestRetrieveOutputMemory(
+		request, 
+		&reqMemory
 	);
-	if (!NT_SUCCESS(Status)) {
+	if (!NT_SUCCESS(status)) {
 		TraceEvents(
 			TRACE_LEVEL_ERROR, 
 			TRACE_DRIVER, 
 			"%!FUNC! WdfRequestRetrieveOutputBuffer failed with %!STATUS!", 
-			Status
+			status
 		);
 		goto exit;
 	}
 
-	QueryPerformanceCounter(
-		&CurrentPerfCounter
-	);
+	// First things
+	report.ReportID = REPORTID_MULTITOUCH;
+	// 60Hz in 100us unit
+	report.ScanTime = 167;
+	report.IsButtonClicked = 0;
 
-	// Scan time is in 100us
-	PerfCounterDelta = (CurrentPerfCounter.QuadPart - DeviceContext->PerfCounter.QuadPart) / 100;
-	// Only two bytes allocated
-	if (PerfCounterDelta > 0xFF)
-	{
-		PerfCounterDelta = 0xFF;
-	}
-
-	PtpReport.ScanTime = (USHORT) PerfCounterDelta;
-
-	// Type 5 finger report
+	// Check things to report
 	if (DeviceContext->IsSurfaceReportOn) {
+
+		SM_PROJECTED_INFORMATION projInfo;
+		PTP_CONTACT_RAW	rawPointers[MT2_MAX_SLOT];
+
+		// Iterations to read
 		raw_n = (NumBytesTransferred - headerSize) / fingerprintSize;
 		if (raw_n >= PTP_MAX_CONTACT_POINTS) raw_n = PTP_MAX_CONTACT_POINTS;
-		PtpReport.ContactCount = (UCHAR)raw_n;
-
-#ifdef INPUT_CONTENT_TRACE
-		TraceEvents(
-			TRACE_LEVEL_INFORMATION,
-			TRACE_DRIVER,
-			"%!FUNC! with %llu points.",
-			raw_n
-		);
-#endif
 
 		// Fingers to array
 		for (i = 0; i < raw_n; i++) {
@@ -509,74 +498,109 @@ AmtPtpServiceTouchInputInterruptType5(
 			x = (SHORT) (tmp_x << 3) >> 3;
 			y = -(INT) (tmp_y << 6) >> 19;
 
-			x = (x - DeviceContext->DeviceInfo->x.min) > 0 ? (x - DeviceContext->DeviceInfo->x.min) : 0;
-			y = (y - DeviceContext->DeviceInfo->y.min) > 0 ? (y - DeviceContext->DeviceInfo->y.min) : 0;
-
 			// Set for state machine's reference
-			PtpReport.Contacts[i].ContactID = f_type5->ContactIdentifier.Id;
-			PtpReport.Contacts[i].X = (USHORT) x;
-			PtpReport.Contacts[i].Y = (USHORT) y;
-			PtpReport.Contacts[i].TipSwitch = (AmtRawToInteger(f_type5->TouchMajor) << 1) > 0;
+			rawPointers[i].ContactId = f_type5->ContactIdentifier.Id;
+			rawPointers[i].X = (USHORT) (x - DeviceContext->DeviceInfo->x.min);
+			rawPointers[i].Y = (USHORT) (y - DeviceContext->DeviceInfo->y.min);
+			rawPointers[i].Size = f_type5->Size;
+			rawPointers[i].TouchMajor = (USHORT) (AmtRawToInteger(f_type5->TouchMajor) << 1);
+			rawPointers[i].TouchMinor = (USHORT) (AmtRawToInteger(f_type5->TouchMinor) << 1);
+			rawPointers[i].State = CONTACT_NEW;
 
-			// The Microsoft spec says reject any input larger than 25mm. This is not ideal
-			// for Magic Trackpad 2 - so we raised the threshold a bit higher.
-			// Or maybe I used the wrong unit? IDK
-			PtpReport.Contacts[i].Confidence = (AmtRawToInteger(f_type5->TouchMinor) << 1) < 345 && 
-				(AmtRawToInteger(f_type5->TouchMinor) << 1) < 345;
+		}
 
-#ifdef INPUT_CONTENT_TRACE
+		// State machine
+		status = SmHandleInputRoutine(
+			rawPointers,
+			(int) raw_n,
+			&DeviceContext->TouchStateMachineInfo);
+
+		if (!NT_SUCCESS(status)) {
+			TraceEvents(
+				TRACE_LEVEL_ERROR,
+				TRACE_DRIVER,
+				"%!FUNC! SmHandleInputRoutine failed with %!STATUS!",
+				status
+			);
+			goto exit;
+		}
+
+		// Retrieve result
+		SmGetPtpReportSlots(
+			&DeviceContext->TouchStateMachineInfo,
+			&projInfo
+		);
+
+		TraceEvents(
+			TRACE_LEVEL_INFORMATION,
+			TRACE_INPUT,
+			"%!FUNC!: SmGetPtpReportSlots returned %d contact(s).",
+			projInfo.ReportedContactsCount
+		);
+
+		// Set & trace contact
+		for (i = 0; i < projInfo.ReportedContactsCount; i++) {
+
+			report.Contacts[i] = projInfo.Contacts[i];
+
 			TraceEvents(
 				TRACE_LEVEL_INFORMATION,
 				TRACE_INPUT,
-				"%!FUNC!: Point %llu, X = %d, Y = %d, TipSwitch = %d, Confidence = %d, tMajor = %d, tMinor = %d, origin = %d",
-				i,
-				PtpReport.Contacts[i].X,
-				PtpReport.Contacts[i].Y,
-				PtpReport.Contacts[i].TipSwitch,
-				PtpReport.Contacts[i].Confidence,
-				AmtRawToInteger(f_type5->TouchMajor) << 1,
-				AmtRawToInteger(f_type5->TouchMinor) << 1,
-				f_type5->ContactIdentifier.Id
+				"%!FUNC!: PTP Origin = %d, X = %d, Y = %d, TipSwitch = %d, Confidence = %d",
+				report.Contacts[i].ContactID,
+				report.Contacts[i].X,
+				report.Contacts[i].Y,
+				report.Contacts[i].TipSwitch,
+				report.Contacts[i].Confidence
 			);
-#endif
+
 		}
+
+		// Set count
+		report.ContactCount = projInfo.ReportedContactsCount;
+
 	}
 
 	// Button
 	if (DeviceContext->IsButtonReportOn) {
 		if (Buffer[DeviceContext->DeviceInfo->tp_button]) {
-			PtpReport.IsButtonClicked = TRUE;
+			report.IsButtonClicked = TRUE;
+			TraceEvents(
+				TRACE_LEVEL_INFORMATION,
+				TRACE_INPUT,
+				"%!FUNC!: Trackpad button clicked"
+			);
 		}
 	}
 
 	// Write output
-	Status = WdfMemoryCopyFromBuffer(
-		RequestMemory, 
+	status = WdfMemoryCopyFromBuffer(
+		reqMemory, 
 		0, 
-		(PVOID) &PtpReport, 
+		(PVOID) &report, 
 		sizeof(PTP_REPORT)
 	);
 
-	if (!NT_SUCCESS(Status)) {
+	if (!NT_SUCCESS(status)) {
 		TraceEvents(
 			TRACE_LEVEL_ERROR, 
 			TRACE_DRIVER, 
 			"%!FUNC! WdfMemoryCopyFromBuffer failed with %!STATUS!", 
-			Status
+			status
 		);
 		goto exit;
 	}
 
 	// Set result
 	WdfRequestSetInformation(
-		Request, 
+		request, 
 		sizeof(PTP_REPORT)
 	);
 
 	// Set completion flag
 	WdfRequestComplete(
-		Request, 
-		Status
+		request, 
+		status
 	);
 
 exit:
@@ -585,7 +609,7 @@ exit:
 		TRACE_DRIVER, 
 		"%!FUNC! Exit"
 	);
-	return Status;
+	return status;
 
 }
 
