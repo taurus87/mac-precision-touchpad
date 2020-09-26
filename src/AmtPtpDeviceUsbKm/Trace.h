@@ -24,6 +24,7 @@ Environment:
     WPP_DEFINE_CONTROL_GUID(                                           \
         AmtPtpDeviceUsbKmTraceGuid, (b409cf52,f41a,4193,98c2,bad95204203b), \
                                                                             \
+        WPP_DEFINE_BIT(MYDRIVER_ALL_INFO)                              \
         WPP_DEFINE_BIT(TRACE_DRIVER)                                   \
         WPP_DEFINE_BIT(TRACE_DEVICE)                                   \
         WPP_DEFINE_BIT(TRACE_QUEUE)                                    \
@@ -56,7 +57,7 @@ Environment:
 // Trace function.
 //
 // begin_wpp config
-// FUNC Trace{FLAGS=TRACE_DRIVER}(LEVEL, MSG, ...);
+// FUNC Trace{FLAGS=MYDRIVER_ALL_INFO}(LEVEL, MSG, ...);
 // FUNC TraceEvents(LEVEL, FLAGS, MSG, ...);
 // end_wpp
 //
