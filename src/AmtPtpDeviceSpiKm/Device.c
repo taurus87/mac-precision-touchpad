@@ -105,11 +105,6 @@ AmtPtpDeviceSpiKmCreateDevice(
 			goto exit;
 		}
 
-		//
-		// Reset power status.
-		//
-		pDeviceContext->DeviceStatus = D3;
-
         //
         // Create a device interface so that applications can find and talk
         // to us.
@@ -301,6 +296,7 @@ AmtPtpEvtDeviceD0Entry(
 {
 	NTSTATUS Status = STATUS_SUCCESS;
 	PDEVICE_CONTEXT pDeviceContext;
+	USHORT Retries = 0;
 
 	PAGED_CODE();
 
@@ -314,7 +310,8 @@ AmtPtpEvtDeviceD0Entry(
 
 	pDeviceContext = DeviceGetContext(Device);
 
-	// Enable SPI trackpad; this might fail but can be retried later
+	// Enable SPI trackpad
+enable_trackpad:
 	Status = AmtPtpSpiSetState(
 		Device,
 		TRUE
@@ -329,14 +326,19 @@ AmtPtpEvtDeviceD0Entry(
 			Status
 		);
 
-		// Ignore anyway, but set unconfigured status
-		pDeviceContext->DeviceStatus = D0ActiveAndUnconfigured;
-		Status = STATUS_SUCCESS;
+		if (Retries >= STATE_SWITCH_MAX_RETRIES)
+		{
+			goto exit;
+		}
+		else
+		{
+			Retries++;
+			goto enable_trackpad;
+		}
 	}
-	else
-	{
-		pDeviceContext->DeviceStatus = D0ActiveAndConfigured;
-	}
+
+	// Set flag
+	pDeviceContext->DeviceReady = TRUE;
 
 	// Reset mapping
 	for (UINT8 i = 0; i < MAPPING_MAX; i++)
@@ -351,6 +353,7 @@ AmtPtpEvtDeviceD0Entry(
 		&pDeviceContext->LastReportTime
 	);
 
+exit:
 	TraceEvents(
 		TRACE_LEVEL_INFORMATION,
 		TRACE_DRIVER,
@@ -369,6 +372,7 @@ AmtPtpEvtDeviceD0Exit(
 	NTSTATUS Status = STATUS_SUCCESS;
 	PDEVICE_CONTEXT pDeviceContext;
 	WDFREQUEST OutstandingRequest;
+	USHORT Retries = 0;
 
 	PAGED_CODE();
 
@@ -380,7 +384,9 @@ AmtPtpEvtDeviceD0Exit(
 	);
 
 	pDeviceContext = DeviceGetContext(Device);
-	pDeviceContext->DeviceStatus = D3;
+
+	// Set flag & it will stop HID read loop thread
+	pDeviceContext->DeviceReady = FALSE;
 
 	// Cancel all outstanding requests
 	while (NT_SUCCESS(Status)) {
@@ -395,6 +401,7 @@ AmtPtpEvtDeviceD0Exit(
 	}
 
 	// Disable HID trackpad
+disable_trackpad:
 	Status = AmtPtpSpiSetState(
 		Device,
 		FALSE
@@ -409,7 +416,15 @@ AmtPtpEvtDeviceD0Exit(
 			Status
 		);
 
-		goto exit;
+		if (Retries >= STATE_SWITCH_MAX_RETRIES)
+		{
+			goto exit;
+		}
+		else
+		{
+			Retries++;
+			goto disable_trackpad;
+		}
 	}
 
 exit:
@@ -430,6 +445,7 @@ exit:
 	return Status;
 }
 
+_IRQL_requires_(PASSIVE_LEVEL)
 PCHAR
 DbgDevicePowerString(
 	_In_ WDF_POWER_DEVICE_STATE Type
@@ -458,6 +474,7 @@ DbgDevicePowerString(
 	}
 }
 
+_IRQL_requires_(PASSIVE_LEVEL)
 NTSTATUS
 AmtPtpSpiSetState(
 	_In_ WDFDEVICE Device,

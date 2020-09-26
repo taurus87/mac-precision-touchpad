@@ -87,6 +87,7 @@ exit:
     return Status;
 }
 
+_IRQL_requires_(PASSIVE_LEVEL)
 PCHAR
 DbgIoControlGetString(
 	_In_ ULONG IoControlCode
@@ -139,12 +140,31 @@ AmtPtpDeviceSpiKmEvtIoInternalDeviceControl(
     _In_ ULONG IoControlCode
     )
 {
-	UNREFERENCED_PARAMETER(InputBufferLength);
-	UNREFERENCED_PARAMETER(OutputBufferLength);
-
 	NTSTATUS Status = STATUS_SUCCESS;
 	WDFDEVICE Device = WdfIoQueueGetDevice(Queue);
 	BOOLEAN RequestPending = FALSE;
+	PDEVICE_CONTEXT pDeviceContext = DeviceGetContext(Device);
+
+    TraceEvents(
+		TRACE_LEVEL_INFORMATION, 
+        TRACE_QUEUE, 
+        "%!FUNC! Queue 0x%p, Request 0x%p OutputBufferLength %d InputBufferLength %d IoControlCode %d", 
+        Queue, 
+		Request, 
+		(int) OutputBufferLength, 
+		(int) InputBufferLength, 
+		IoControlCode
+	);
+
+	if (!pDeviceContext->DeviceReady)
+	{
+		WdfRequestComplete(
+			Request,
+			STATUS_CANCELLED
+		);
+
+		return;
+	}
 
 	// Dispatch IOCTL to handler
 	switch (IoControlCode)
@@ -228,9 +248,10 @@ AmtPtpDeviceSpiKmEvtIoStop(
     _In_ ULONG ActionFlags
 )
 {
-	UNREFERENCED_PARAMETER(Queue);
-	UNREFERENCED_PARAMETER(Request);
-	UNREFERENCED_PARAMETER(ActionFlags);
+    TraceEvents(TRACE_LEVEL_INFORMATION, 
+                TRACE_QUEUE, 
+                "%!FUNC! Queue 0x%p, Request 0x%p ActionFlags %d", 
+                Queue, Request, ActionFlags);
 
     //
     // In most cases, the EvtIoStop callback function completes, cancels, or postpones
