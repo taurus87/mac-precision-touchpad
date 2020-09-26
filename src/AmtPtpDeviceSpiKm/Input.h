@@ -1,9 +1,18 @@
 #pragma once
 
-EVT_WDF_REQUEST_COMPLETION_ROUTINE AmtPtpRequestCompletionRoutine;
+KSTART_ROUTINE AmtPtpSpiInputThreadRoutine;
 
+_IRQL_requires_(PASSIVE_LEVEL)
 VOID
 AmtPtpSpiInputRoutineWorker(
-	WDFDEVICE Device,
-	WDFREQUEST PtpRequest
+	WDFDEVICE Device
+);
+
+_IRQL_requires_(PASSIVE_LEVEL)
+VOID
+AmtPtpRequestCompletionRoutine(
+	WDFREQUEST Request,
+	WDFIOTARGET Target,
+	PWDF_REQUEST_COMPLETION_PARAMS Params,
+	WDFCONTEXT Context
 );

@@ -52,9 +52,9 @@ typedef struct _DEVICE_CONTEXT
 	// IO content
 	WDFDEVICE	SpiDevice;
 	WDFIOTARGET SpiTrackpadIoTarget;
+	WDFQUEUE	HidIoQueue;
 	BOOLEAN		DeviceReady;
 	HANDLE		InputPollThreadHandle;
-	WDFQUEUE	HidQueue;
 
 	// SPI device metadata
 	USHORT HidVendorID;
@@ -73,8 +73,11 @@ typedef struct _DEVICE_CONTEXT
 	// Timer
 	LARGE_INTEGER LastReportTime;
 
-	// List of buffers
-	WDFLOOKASIDE HidReadBufferLookaside;
+	// Asynchronous & Reuse content
+	KEVENT PtpRequestRoutineEvent;
+	KEVENT PtpLoopRoutineEvent;
+	BOOLEAN DelayedRequest;
+	BOOLEAN PendingRequest;
 
 } DEVICE_CONTEXT, *PDEVICE_CONTEXT;
 
@@ -86,16 +89,6 @@ typedef struct _DEVICE_CONTEXT
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(DEVICE_CONTEXT, DeviceGetContext)
 
 //
-// Request context
-//
-typedef struct _WORKER_REQUEST_CONTEXT {
-	PDEVICE_CONTEXT DeviceContext;
-	WDFMEMORY RequestMemory;
-} WORKER_REQUEST_CONTEXT, *PWORKER_REQUEST_CONTEXT;
-
-WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(WORKER_REQUEST_CONTEXT, WorkerRequestGetContext)
-
-//
 // Function to initialize the device and its callbacks
 //
 NTSTATUS
@@ -103,9 +96,27 @@ AmtPtpDeviceSpiKmCreateDevice(
     _Inout_ PWDFDEVICE_INIT DeviceInit
     );
 
-EVT_WDF_DEVICE_PREPARE_HARDWARE AmtPtpEvtDevicePrepareHardware;
-EVT_WDF_DEVICE_D0_ENTRY AmtPtpEvtDeviceD0Entry;
-EVT_WDF_DEVICE_D0_EXIT AmtPtpEvtDeviceD0Exit;
+_IRQL_requires_(PASSIVE_LEVEL)
+NTSTATUS
+AmtPtpEvtDevicePrepareHardware(
+	_In_ WDFDEVICE Device,
+	_In_ WDFCMRESLIST ResourceList,
+	_In_ WDFCMRESLIST ResourceListTranslated
+);
+
+_IRQL_requires_(PASSIVE_LEVEL)
+NTSTATUS
+AmtPtpEvtDeviceD0Entry(
+	_In_ WDFDEVICE Device,
+	_In_ WDF_POWER_DEVICE_STATE PreviousState
+);
+
+_IRQL_requires_(PASSIVE_LEVEL)
+NTSTATUS
+AmtPtpEvtDeviceD0Exit(
+	_In_ WDFDEVICE Device,
+	_In_ WDF_POWER_DEVICE_STATE TargetState
+);
 
 _IRQL_requires_(PASSIVE_LEVEL)
 PCHAR

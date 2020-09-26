@@ -32,6 +32,11 @@ AmtPtpDeviceSpiKmQueueInitialize(
 	PDEVICE_CONTEXT pDeviceContext;
 
     PAGED_CODE();
+	KdPrintEx((
+		DPFLTR_IHVDRIVER_ID, 
+		DPFLTR_INFO_LEVEL, 
+		"AmtPtpDeviceSpiKmQueueInitialize Entry \n"
+	));
 
 	// By the time this is being called, it should exist
 	pDeviceContext = DeviceGetContext(Device);
@@ -63,27 +68,42 @@ AmtPtpDeviceSpiKmQueueInitialize(
     }
 
 	//
-	// Create secondary queues for touch read requests.
+	// Create secondary queues for touchpad HID read requests.
 	//
 	WDF_IO_QUEUE_CONFIG_INIT(&QueueConfig, WdfIoQueueDispatchManual);
 	QueueConfig.PowerManaged = WdfFalse;
-
 	Status = WdfIoQueueCreate(
 		Device,
 		&QueueConfig,
 		WDF_NO_OBJECT_ATTRIBUTES,
-		&pDeviceContext->HidQueue
+		&pDeviceContext->HidIoQueue
 	);
 
-	if (!NT_SUCCESS(Status)) {
+	if (!NT_SUCCESS(Status)) 
+	{
 		TraceEvents(
-			TRACE_LEVEL_ERROR, TRACE_QUEUE, 
+			TRACE_LEVEL_ERROR,
+			TRACE_QUEUE,
 			"%!FUNC! WdfIoQueueCreate (Input) failed %!STATUS!",
 			Status
 		);
+
+		KdPrintEx((
+			DPFLTR_IHVDRIVER_ID,
+			DPFLTR_INFO_LEVEL,
+			"WdfIoQueueCreate (Input) failed, Status = 0x%x \n",
+			Status
+		));
+		
+		goto exit;
 	}
 
 exit:
+	KdPrintEx((
+		DPFLTR_IHVDRIVER_ID,
+		DPFLTR_INFO_LEVEL,
+		"AmtPtpDeviceSpiKmQueueInitialize Exit \n"
+	));
     return Status;
 }
 
@@ -158,6 +178,12 @@ AmtPtpDeviceSpiKmEvtIoInternalDeviceControl(
 
 	if (!pDeviceContext->DeviceReady)
 	{
+		KdPrintEx((
+			DPFLTR_IHVDRIVER_ID,
+			DPFLTR_INFO_LEVEL,
+			"AmtPtpDeviceSpiKmEvtIoDeviceControl requested cancelled: device not ready \n"
+		));
+
 		WdfRequestComplete(
 			Request,
 			STATUS_CANCELLED
@@ -195,11 +221,11 @@ AmtPtpDeviceSpiKmEvtIoInternalDeviceControl(
 		);
 		break;
 	case IOCTL_HID_READ_REPORT:
-		AmtPtpSpiInputRoutineWorker(
+		Status = AmtPtpDispatchReadReportRequests(
 			Device,
-			Request
+			Request,
+			&RequestPending
 		);
-		RequestPending = TRUE;
 		break;
 	case IOCTL_HID_GET_FEATURE:
 		Status = AmtPtpReportFeatures(
@@ -292,4 +318,59 @@ AmtPtpDeviceSpiKmEvtIoStop(
     //
 
     return;
+}
+
+NTSTATUS
+AmtPtpDispatchReadReportRequests(
+	_In_ WDFDEVICE Device,
+	_In_ WDFREQUEST Request,
+	_Out_ BOOLEAN *Pending
+)
+{
+
+	NTSTATUS Status;
+	PDEVICE_CONTEXT pDeviceContext;
+
+	PAGED_CODE();
+
+	Status = STATUS_SUCCESS;
+	pDeviceContext = DeviceGetContext(Device);
+	
+	if (pDeviceContext->DeviceReady)
+	{
+		Status = WdfRequestForwardToIoQueue(
+			Request,
+			pDeviceContext->HidIoQueue
+		);
+
+		*Pending = TRUE;
+	}
+	else
+	{
+		WdfRequestComplete(
+			Request,
+			STATUS_CANCELLED
+		);
+
+		*Pending = TRUE;
+	}
+	
+
+	if (!NT_SUCCESS(Status)) 
+	{
+		TraceEvents(
+			TRACE_LEVEL_ERROR,
+			TRACE_DRIVER,
+			"%!FUNC! WdfRequestForwardToIoQueue failed with %!STATUS!",
+			Status
+		);
+		return Status;
+	}
+
+	if (NULL != Pending) 
+	{
+		*Pending = TRUE;
+	}
+
+	return Status;
 }

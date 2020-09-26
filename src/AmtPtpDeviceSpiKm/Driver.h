@@ -40,6 +40,6 @@ EVT_WDF_OBJECT_CONTEXT_CLEANUP AmtPtpDeviceSpiKmEvtDriverContextCleanup;
 //
 // Pool Tag
 //
-#define PTP_LIST_POOL_TAG 'LTPA'
+#define PTP_POOL_TAG 'PTPA'
 
 EXTERN_C_END

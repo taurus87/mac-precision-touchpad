@@ -39,6 +39,13 @@ DbgIoControlGetString(
 	_In_ ULONG IoControlCode
 );
 
+NTSTATUS
+AmtPtpDispatchReadReportRequests(
+	_In_ WDFDEVICE Device,
+	_In_ WDFREQUEST Request,
+	_Out_ BOOLEAN *Pending
+);
+
 //
 // Events from the IoQueue object
 //
