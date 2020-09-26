@@ -340,7 +340,7 @@ AmtPtpGetWellspringMode(
 	status = WdfMemoryCreate(
 		WDF_NO_OBJECT_ATTRIBUTES,
 		PagedPool,
-		POOL_TAG_PTP_CONTROL,
+		0,
 		DeviceContext->DeviceInfo->um_size,
 		&bufHandle,
 		&buffer
@@ -407,7 +407,7 @@ cleanup:
 		"%!FUNC! Exit"
 	);
 
-	WdfObjectDelete(bufHandle);
+	bufHandle = NULL;
 	return status;
 
 }
@@ -443,7 +443,7 @@ AmtPtpSetWellspringMode(
 	status = WdfMemoryCreate(
 		WDF_NO_OBJECT_ATTRIBUTES, 
 		PagedPool, 
-		POOL_TAG_PTP_CONTROL, 
+		0, 
 		DeviceContext->DeviceInfo->um_size, 
 		&bufHandle, 
 		&buffer
@@ -546,7 +546,7 @@ cleanup:
 		"%!FUNC! Exit"
 	);
 
-	WdfObjectDelete(bufHandle);
+	bufHandle = NULL;
 	return status;
 
 }
