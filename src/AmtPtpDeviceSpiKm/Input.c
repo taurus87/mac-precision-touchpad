@@ -35,7 +35,17 @@ AmtPtpSpiInputRoutineWorker(
 	}
 
 	// Late-init for the sleep workaround
-	if (pDeviceContext->DeviceStatus == D0ActiveAndUnconfigured) {
+	if (pDeviceContext->DeviceStatus == D3) {
+		TraceEvents(
+			TRACE_LEVEL_WARNING,
+			TRACE_DRIVER,
+			"%!FUNC! Unexpected call while device is in D3 status"
+		);
+
+		WdfRequestComplete(PtpRequest, STATUS_DEVICE_NOT_READY);
+		return;
+	}
+	else if (pDeviceContext->DeviceStatus == D0ActiveAndUnconfigured) {
 		TraceEvents(
 			TRACE_LEVEL_INFORMATION,
 			TRACE_DRIVER,
@@ -56,6 +66,7 @@ AmtPtpSpiInputRoutineWorker(
 				Status
 			);
 
+			WdfRequestComplete(PtpRequest, Status);
 			return;
 		}
 
@@ -80,6 +91,7 @@ AmtPtpSpiInputRoutineWorker(
 			Status
 		);
 
+		WdfRequestComplete(PtpRequest, Status);
 		return;
 	}
 
@@ -98,6 +110,7 @@ AmtPtpSpiInputRoutineWorker(
 		);
 
 		WdfObjectDelete(SpiHidReadRequest);
+		WdfRequestComplete(PtpRequest, Status);
 		return;
 	}
 
@@ -126,8 +139,9 @@ AmtPtpSpiInputRoutineWorker(
 			Status
 		);
 
-		WdfObjectDelete(SpiHidReadOutputMemory);
 		WdfObjectDelete(SpiHidReadRequest);
+		WdfObjectDelete(SpiHidReadOutputMemory);
+		WdfRequestComplete(PtpRequest, Status);
 		return;
 	}
 
@@ -151,8 +165,9 @@ AmtPtpSpiInputRoutineWorker(
 			"%!FUNC! AmtPtpSpiInputRoutineWorker request failed to sent"
 		);
 
-		WdfObjectDelete(SpiHidReadOutputMemory);
 		WdfObjectDelete(SpiHidReadRequest);
+		WdfObjectDelete(SpiHidReadOutputMemory);
+		WdfRequestComplete(PtpRequest, STATUS_IO_DEVICE_ERROR);
 	}
 }
 
