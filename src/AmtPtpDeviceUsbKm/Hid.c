@@ -55,8 +55,6 @@ AmtPtpGetHidDescriptor(
 	}
 
 	switch (pContext->DeviceDescriptor.idProduct) {
-		case USB_DEVICE_ID_APPLE_T2_7A:
-		case USB_DEVICE_ID_APPLE_T2_7B:
 		case USB_DEVICE_ID_APPLE_T2_7C:
 		case USB_DEVICE_ID_APPLE_T2_7D:
 		{
@@ -181,8 +179,6 @@ AmtPtpGetReportDescriptor(
 	}
 
 	switch (pContext->DeviceDescriptor.idProduct) {
-		case USB_DEVICE_ID_APPLE_T2_7A:
-		case USB_DEVICE_ID_APPLE_T2_7B:
 		case USB_DEVICE_ID_APPLE_T2_7C:
 		case USB_DEVICE_ID_APPLE_T2_7D:
 		{
